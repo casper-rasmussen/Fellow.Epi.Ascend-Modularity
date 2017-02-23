@@ -1,0 +1,1 @@
+<add name="LuceneSearchProvider" type="Mediachase.Search.Providers.Lucene.LuceneSearchProvider, Mediachase.Search.LuceneSearchProvider" queryBuilderType="Mediachase.Search.Providers.Lucene.LuceneSearchQueryBuilder, Mediachase.Search.LuceneSearchProvider" storage="[appDataPath]\Index" simulateFaceting="true"/>

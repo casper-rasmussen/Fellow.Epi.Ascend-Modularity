@@ -1,0 +1,247 @@
+﻿<?xml version="1.0"?>
+<project default="Base-Config">
+	<!-- Define custom functions in nAnt -->
+	<script language="C#" prefix="Custom">
+		<code>
+			<![CDATA[
+				[Function("GetFileEncoding")]
+				public static string GetFileEncoding(string path)
+				{
+						Encoding[] encodings = { Encoding.UTF8, Encoding.Unicode, Encoding.BigEndianUnicode, Encoding.UTF32 };
+
+						// default file encoding is ascii
+						Encoding fileEncoding = Encoding.ASCII;
+
+						using (FileStream fileStream = new FileStream(path, FileMode.Open, FileAccess.Read))
+						{
+						fileStream.Position = 0;
+
+						for (int i = 0; i < encodings.Length; i++)
+						{
+								Encoding encoding = encodings[i];
+
+								byte[] encodingPreamble = encoding.GetPreamble();
+								byte[] filePreamble = new byte[encodingPreamble.Length];
+
+								if (fileStream.Read(filePreamble, 0, encodingPreamble.Length) != filePreamble.Length)
+								{
+									continue;
+								}
+
+								bool preamblesAreEqual = true;
+
+								for (int b = 0; b < encodingPreamble.Length; b++)
+								{
+									preamblesAreEqual = encodingPreamble[b] == filePreamble[b];
+								}
+
+								if (preamblesAreEqual)
+								{
+									fileEncoding = encoding;
+								}
+							}
+					}
+
+					return fileEncoding.BodyName;
+				}
+		]]>
+		</code>
+	</script>
+	<target name="Run">
+		<!-- Only execute the Base-Config if the Configuration are not set to Manual -->
+		<call target="Base-Config" if="${Configuration!='Manual'}"/>
+	</target>
+	<target name="Base-Config">
+		<!-- Get the Environment and Branch specification from our Configuration (Split by @)-->
+		<choose>
+			<when test="${string::contains(Configuration, '@')}">
+				<property name="Management.Branch" value="${string::substring(Configuration, string::index-of(Configuration, '@')+1, string::get-length(Configuration)-string::index-of(Configuration, '@')-1)}"/>
+				<property name="Management.Environment" value="${string::substring(Configuration, 0, string::index-of(Configuration, '@'))}" overwrite="true"/>
+			</when>
+			<otherwise>
+				<!-- If there isnt any @ in the Configuration, then assume its all environment -->
+				<property name="Management.Branch" value=""/>
+				<property name="Management.Environment" value="${Configuration}" overwrite="true"/>
+			</otherwise>
+		</choose>
+
+		<!-- Get the Machine, either by the outside set Machine parameter or the current machine name -->
+		<choose>
+			<when test="${string::trim(Machine)!=''}">
+				<property name="Management.MachineName" value="${string::trim(Machine)}" overwrite="true" />
+			</when>
+			<otherwise>
+				<property name="Management.MachineName" value="${environment::get-machine-name()}" overwrite="true" />
+			</otherwise>
+		</choose>
+
+		<property name="Management.OutputDirectory" value ="${ProjectDir}"/>
+		<property name="Management.Directories.Properties" value="Properties\Default,Properties\Default\${Management.Branch},Properties\Default\${Management.Branch}\${Management.MachineName}" />
+		<property name="Management.Directories.Templates" value="Templates,Templates\${Management.Environment},Templates\${Management.MachineName}"/>
+		<property name="Management.Directories.Statics" value="Statics\Default,Statics\Default\${Management.Environment},Statics\Default\${Management.Environment}\${Management.MachineName},Statics\${Management.Environment},Statics\${Management.Environment}\${Management.MachineName}"/>
+
+		<!-- append shared properties -->
+		<foreach item="Folder" in="..\Properties" property="Directory">
+			<property name="PropertiesDir" value="${path::get-file-name(Directory)}"/>
+  
+			<!-- add properties dir, if it contains dash '-' and environment -->
+			<if test="${string::contains(PropertiesDir,'-') and string::contains(PropertiesDir,Management.Environment)}"> 
+				<property name="Management.Directories.Properties" value="${Management.Directories.Properties},Properties\${PropertiesDir},Properties\${PropertiesDir}\${Management.MachineName},Properties\${PropertiesDir}\${Management.Branch},Properties\${PropertiesDir}\${Management.Branch}\${Management.MachineName}" />
+			</if> 
+		</foreach>    
+    
+    <!-- append specific properties -->
+		<property name="Management.Directories.Properties" value="${Management.Directories.Properties},Properties\${Management.Environment},Properties\${Management.Environment}\${Management.MachineName},Properties\${Management.Environment}\${Management.Branch},Properties\${Management.Environment}\${Management.Branch}\${Management.MachineName}" />
+    
+		<echo message="----------------------------------------------------"/>
+		<echo message=""/>
+		<echo message="Valtech Base Config Management"/>
+		<echo message="Valtech"/>
+		<echo message=""/>
+		<echo message="----------------------------------------------------"/>
+		<echo message=""/>
+		<echo message="Output Directory: '${Management.OutputDirectory}'"/>
+		<echo message="Environment: ${Management.Environment}"/>
+		<echo message="MachineName: ${Management.MachineName}"/>
+		<echo message="Branch: ${Management.Branch}"/>
+		<echo message="---------------------------------------------------"/>
+
+		<!-- Include all .properties files within the Properties directories -->
+		<foreach item="String" in="${Management.Directories.Properties}" delim="," property="Directory">
+			<echo message="Including properties from '${Directory}'"/>
+
+			<fileset id="Properties.Fileset" basedir="..\${Directory}" >
+				<include name="*.properties" />
+				<include name="*.property" />
+			</fileset>
+			<foreach item="File" property="Properties.File">
+				<in>
+					<items refid="Properties.Fileset"/>
+				</in>
+				<do>
+					<!-- Include property file, if it exists -->
+					<if test="${file::exists(Properties.File)}">
+
+						<!-- If its a .properties file, then include, if not then load -->
+						<choose>
+							<when test="${path::get-extension(Properties.File) =='.properties'}">
+								<echo message="Including '${Properties.File}'" />
+								<include buildfile="${Properties.File}" />
+							</when>
+							<otherwise>
+								<!-- Set include property name to property name (used to read file content into property value) -->
+								<property name="Properties.File.Name" value="${path::get-file-name(Properties.File)}" dynamic="true" />
+								<property name="Properties.File.PropertyName" value="${string::replace(Properties.File.Name, '.property', '')}" dynamic="true" />
+
+								<echo message="Loading '${Properties.File.PropertyName}' from file '${Properties.File}'" />
+								<loadfile file="${Properties.File}" property="${Properties.File.PropertyName}">
+									<filterchain>
+										<expandproperties />
+									</filterchain>
+								</loadfile>
+							</otherwise>
+						</choose>
+					</if>
+				</do>
+			</foreach>
+
+		</foreach>
+
+		<foreach item="String" in="${Management.Directories.Templates}" delim="," property="Directory">
+
+			<property name="Directory.Relative" value="..\${Directory}" overwrite="true"/>
+
+			<!-- Copy dynamic files from location directory, if it exists -->
+			<if test="${directory::exists(Directory.Relative)}">
+
+				<echo message="Adding templates from '${Directory.Relative}'"/>
+
+				<!-- Build the absolute path for our current directory (e.g. C:\Git\..\Templates -->
+				<property name="Directory.Absolute" value="${path::combine(directory::get-parent-directory(project::get-base-directory()), Directory)}"/>
+
+				<fileset id="Templates.FileSet" basedir="${Directory.Relative}">
+					<include name="*" />
+					<include name="+**/*" />
+					<!-- -Include also those with an + -->
+				</fileset>
+				<foreach item="File" property="Templates.File">
+					<in>
+						<items refid="Templates.FileSet" />
+					</in>
+					<do>
+						<!-- Replace the Absolute path of current directory with nothing -->
+						<property name="Templates.File.Relative" value="${string::replace(Templates.File, Directory.Absolute, '')}"/>
+						<!-- Replace + with nothing and prepend the Output directory -->
+						<property name="Templates.File.Output" value="${Management.OutputDirectory}${string::replace(Templates.File.Relative, '+', '')}"/>
+						<property name="Templates.File.Encoding" value="${Custom::GetFileEncoding(Templates.File)}" />
+
+						<!-- Remove the \ in the begging of our relative path if exists -->
+						<choose>
+							<when test="${string::starts-with(Templates.File.Relative, '\')}">
+								<property name="Templates.File.Relative" value="${string::substring(Templates.File.Relative, 1, string::get-length(Templates.File.Relative)-1)}" />
+							</when>
+						</choose>
+
+						<echo message="Copies file from '${Templates.File.Relative}' to '${Templates.File.Output}'"/>
+
+						<!-- Copy the file from the source to the new position -->
+						<copy file="${path::combine(Directory.Absolute, Templates.File.Relative)}" overwrite="true" outputencoding="${Templates.File.Encoding}" verbose="false" tofile="${Templates.File.Output}">
+							<filterchain>
+								<expandproperties />
+							</filterchain>
+						</copy>
+					</do>
+				</foreach>
+
+			</if>
+
+		</foreach>
+
+		<!-- Copy all statics without modifications -->
+		<foreach item="String" in="${Management.Directories.Statics}" delim="," property="Directory">
+			<echo message="Copying files from '${Directory}'"/>
+
+			<!-- Build the absolute path for our current directory (e.g. C:\Git\..\Statics -->
+			<property name="Directory.Absolute" value="${path::combine(directory::get-parent-directory(project::get-base-directory()), Directory)}"/>
+			<echo message="${Directory.Absolute}"/>
+			<fileset id="Statics.Fileset" basedir="..\${Directory}" >
+				<include name="*.*" />
+				<!-- all types -->
+				<include name="+**/*" />
+				<!-- -Include also those with an + -->
+			</fileset>
+			<foreach item="File" property="Statics.File">
+				<in>
+					<items refid="Statics.Fileset"/>
+				</in>
+				<do>
+					<!-- Replace the Absolute path of current directory with nothing -->
+					<property name="Statics.File.Relative" value="${string::replace(Statics.File, Directory.Absolute, '')}"/>
+					<!-- Replace + with nothing and prepend the Output directory -->
+					<property name="Statics.File.Output" value="${Management.OutputDirectory}${string::replace(Statics.File.Relative, '+', '')}"/>
+
+					<!-- Remove the \ in the begging of our relative path if exists -->
+					<choose>
+						<when test="${string::starts-with(Statics.File.Relative, '\')}">
+							<property name="Statics.File.Relative" value="${string::substring(Statics.File.Relative, 1, string::get-length(Statics.File.Relative)-1)}" />
+						</when>
+					</choose>
+
+					<!-- Include property file, if it exists -->
+					<if test="${file::exists(Statics.File)}">
+						<echo message="Copying to '${Statics.File.Output}' without modifications" />
+						<echo message="${path::combine(Directory.Absolute, Statics.File.Relative)}"/>
+						<copy file="${path::combine(Directory.Absolute, Statics.File.Relative)}" overwrite="true" verbose="false" tofile="${Statics.File.Output}">
+							<filterchain>
+								<expandproperties />
+							</filterchain>
+						</copy>
+					</if>
+				</do>
+			</foreach>
+
+		</foreach>
+
+
+	</target>
+</project>
