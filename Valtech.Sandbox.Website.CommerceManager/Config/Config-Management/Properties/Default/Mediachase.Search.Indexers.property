@@ -1,3 +1,0 @@
-<Indexers basePath="[appDataPath]\Index">
-  <add name="catalog" type="EPiServer.Reference.Commerce.Shared.CatalogIndexer.RestIndexer, EPiServer.Reference.Commerce.Shared"/>
-</Indexers>
